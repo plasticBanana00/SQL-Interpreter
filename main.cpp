@@ -1,3 +1,9 @@
+/*
+	Alex Vladimirov
+	SQL Interpreter
+	hours: 32
+*/
+
 #include <iostream>
 #include <conio.h>
 #include <string>
@@ -32,6 +38,7 @@ void OutputStudent(const vector<student> &DB, int index, string col);
 vector<string> ParseToVec(string inp); //Parses a string into a vector
 void InterpretVec(vector<string> code, vector<student> DB); //Interprets a vector of sql code
 vector<bool> isStatement(vector<string> code); //Checks if string vector elements are SQL statements or clauses
+bool checkState(vector<string> code, int pos);
 
 vector<student> NewEntry(vector<student> &DB, string name, string id, string age); //Creates a new database entry
 student NewStudent(string name, string id, string age); //Create a new strudent struct
@@ -47,22 +54,31 @@ int main()
 		Input(input, start);
 	}
 
-	vector<student> dataBase;
 	bool exit = false;
+	char ans = 'y';
+
+
 	while (!exit)
 	{
+		vector<student> dataBase;
+		FillTestDB(dataBase);
 		char input[100];
+
 		cout << ": ";
 		cin.getline(input, 100);
 
 		string inp(input);
 		vector<string> sqlCode = ParseToVec(inp);
-		for (auto tok : sqlCode)
-			cout << tok << endl;
-		FillTestDB(dataBase);
 
-		TEST();
-		exit = true;
+		InterpretVec(sqlCode, dataBase);
+
+		//TEST();
+		cout << endl << "again [y/n]?";
+		cin >> ans;
+		if (ans == 'n')
+		{
+			exit = true;
+		}
 	}
 
 	system("pause");
@@ -73,13 +89,15 @@ void TEST()
 	vector<student> dataBase;
 	FillTestDB(dataBase);
 
-	vector<string> exCode = { "SELECT", "*", "FROM", "students", "WHERE", "studentName", "=", "Alex Vladimirov" };
+	vector<string> exCode = { "SELECT", "*", "FROM", "students", "WHERE", "studentName", "=", "Alex Vladimirov", ";", "\n"};
 	vector<bool> isState;
 
 	isState = isStatement(exCode);
-
+	cout << "isState:";
 	for (auto it : isState)
-		cout << it << " " << endl;
+		cout << it << " ";
+
+	InterpretVec(exCode, dataBase);
 
 	//OutputDatabase(dataBase, "*");
 	//OutputDatabase(const vector<student> &DB, string col1, string col2)
@@ -173,7 +191,7 @@ vector<string> ParseToVec(string inp)
 	int currPos = 0;
 	string temp;
 	
-	for (size_t i = 0; i < inp.length(); i++)
+	for (int i = 0; i < inp.length(); i++)
 	{
 		if (inp[i] == ' ')
 		{
@@ -190,7 +208,12 @@ vector<string> ParseToVec(string inp)
 			i = apostIndex + 1;
 		}
 		else if (inp[i] == ';')
+		{
+			string substr = inp.substr(currPos, (i - currPos));
+			tokens.push_back(substr);
+			tokens.push_back(";");
 			return tokens;
+		}
 	}
 	return tokens;
 }
@@ -221,6 +244,7 @@ void InterpretVec(vector<string> code, vector<student> DB)
 
 	vector<bool> isState = isStatement(code);
 
+	int pos = 1; //current position in the vector
 	switch (initState)
 	{
 	case 0: //DELETE
@@ -233,75 +257,89 @@ void InterpretVec(vector<string> code, vector<student> DB)
 		else
 		{
 			//sample: 
-			//SELECT * FROM Students WHERE studentName = 'A V' OR studentID = '1111000';
+			//SELECT * FROM Students;           WHERE studentName = 'A V' OR studentID = '1111000';
 			//  0    1   2     3       4  <-- pos
 			//two col sample:
-			//SELECT, studentName, studentAge FROM Students WHERE
+			//SELECT studentName, studentAge FROM Students WHERE
 			//  0          1            2       3      4      5  <-- pos
-
-			int pos = 1; //current position in the vector
-			bool twoCol = false; //if there are two columns after SELECT
+			
+			string col1 = code[pos]; //pos = 1
+			pos++; //pos = 2
+			string col2;
+			bool twoCol = false; //if there are two columns
 			bool areConst = false; //if there are constraints
+			string andOr = "none"; //can be changed to AND or OR
+			vector<string> constraints;
+			string prevWord;
+			prevWord = "selCol";
 
-			string colName = code[pos]; //(SELECT) (column_name, pos == 1)
-			string colName2; //in case there are two columns
+			cout << endl << "code len:" << code.size() << endl;
 
-			pos++;
-			if (code[pos] == "FROM") //if what is after SELECT is (FROM, pos == 2)
+			while (code[pos + 1] != "\n")
 			{
-				pos++; //to skip FROM
-				string dataBase = code[pos]; //(FROM) (data_base, pos == 3)
-			}
-			else
-			{
-				twoCol = true;
-				colName2 = code[pos]; //pos == 2
-				pos += 2; //skips to (data_base, pos == 4)
-				string dataBase = code[pos];
 
-			}
-			pos++; //skips to WHERE
-
-			//for WHERE: 
-			vector<string> constraints; // colum_name, operator, value
-			string clause = "none";
-
-			if (code[pos] == "WHERE")
-			{
-				areConst = true; // are constraints because of WHERE
-
-				for (int i = pos++; i < isState.size(); i++)
+				if (prevWord == "selCol" && code[pos] != "FROM")
 				{
-					if (isState[i] == false)
-						constraints.push_back(code[i]);
-					else if (isState[i] == true)
-					{
-						clause = code[i]; //either AND or OR
-						for (int count = i; count < isState.size(); count++)
-						{
-							constraints.push_back(code[i]);
-						}
-						i = isState.size();
-					}
+					col2 = code[2];
 				}
-				constraints.push_back(clause);
+				else if (code[pos] == "FROM")
+				{
+					prevWord = "FROM";
+				}
+				else if (prevWord == "FROM")
+				{
+					prevWord = "Students";
+				}
+				else if (code[pos] == "WHERE")
+				{
+					areConst = true; //There are constraints for output
+					for (int i = pos + 1; i < code.size(); i++) //checks if there is an AND or OR
+					{
+						if (isState[i] == true)
+						{
+							andOr = code[i];
+							cout << "andOr:" << andOr << "  "; //debug
+						}
+					}
+					if (andOr != "none")
+					{
+						constraints.push_back(code[pos + 1]);
+						constraints.push_back(code[pos + 2]);
+						constraints.push_back(code[pos + 3]);
+						//skips the AND or OR
+						constraints.push_back(code[pos + 5]);
+						constraints.push_back(code[pos + 6]);
+						constraints.push_back(code[pos + 7]);
+						constraints.push_back(andOr); //appends AND or OR to the end
+					}
+					else
+					{
+						cout << endl <<  "andOr:" << andOr << endl << endl; //debug
+						constraints.push_back(code[pos +1]);
+						constraints.push_back(code[pos + 2]);
+						constraints.push_back(code[pos + 3]);
+					}
+					prevWord = "null"; //causes the loop to run to the end
+					break;
+				}
+				pos++;
 			}
 
 			if (!twoCol && !areConst)
 			{
-				OutputDatabase(DB, colName);
+				OutputDatabase(DB, col1);
 			}
-			else if(!twoCol && areConst)
+			else if (!twoCol && areConst)
 			{
-				OutputDatabase(DB, colName, constraints);
+				OutputDatabase(DB, col1, constraints);
 			}
 			else if (twoCol && !areConst)
 			{
-				OutputDatabase(DB, colName, colName2);
+				OutputDatabase(DB, col1, col2);
 			}
 			else if (twoCol && areConst)
 			{
-				OutputDatabase(DB, colName, colName2, constraints);
+				OutputDatabase(DB, col1, col2, constraints);
 			}
 
 		}
@@ -337,6 +375,9 @@ void OutputDatabase(const vector<student> &DB, string col1, string col2)
 
 void OutputDatabase(const vector<student> &DB, string col, const vector<string> &constraints)
 {
+
+	cout << endl << "OutputDB 1 col + constraints called" << endl; //debug
+
 	vector<string> possCols;
 	possCols = { "studentName", "studentID", "studentAge" };
 
@@ -362,46 +403,58 @@ void OutputDatabase(const vector<student> &DB, string col, const vector<string> 
 
 	switch (colIndex)
 	{
-	case 1:
+	case 0: //studentName
 			for (size_t i = 0; i < DB.size(); i++)
 			{
-				if (operIndex == 0) {
-					if (DB[i].studentName == val) {
+				if (operIndex == 0) //=
+				{
+					if (DB[i].studentName == val) 
+					{
 						OutputStudent(DB, i, col);
 					}
 				}
-				else if (operIndex == 1) {
-					if (DB[i].studentName != val){
+				else if (operIndex == 1) //!=
+				{
+					if (DB[i].studentName != val)
+					{
 						OutputStudent(DB, i, col);
 					}
 				}
 			}
 		break;
-	case 2:
+	case 1: //studentID
 		for (size_t i = 0; i < DB.size(); i++)
 		{
-			if (operIndex == 0) {
-				if (DB[i].studentID == val) {
+			if (operIndex == 0) //=
+			{
+				if (DB[i].studentID == val) 
+				{
 					OutputStudent(DB, i, col);
 				}
 			}
-			else if (operIndex == 1) {
-				if (DB[i].studentID != val) {
+			else if (operIndex == 1) //!=
+			{
+				if (DB[i].studentID != val) 
+				{
 					OutputStudent(DB, i, col);
 				}
 			}
 		}
 		break;
-	case 3: 
+	case 2: //studentAge
 		for (size_t i = 0; i < DB.size(); i++)
 		{
-			if (operIndex == 0) {
-				if (DB[i].studentAge == val) {
+			if (operIndex == 0) //=
+			{
+				if (DB[i].studentAge == val) 
+				{
 					OutputStudent(DB, i, col);
 				}
 			}
-			else if (operIndex == 1) {
-				if (DB[i].studentAge != val) {
+			else if (operIndex == 1) 
+			{
+				if (DB[i].studentAge != val) //!=
+				{
 					OutputStudent(DB, i, col);
 				}
 			}
@@ -445,23 +498,98 @@ student NewStudent(string name, string id, string age)
 
 vector<bool> isStatement(vector<string> code)
 {
-	vector<string> statements = { "DELETE", "SELECT", "INSERT INTO",
-									"DISTINCT", "FROM", "WHERE", "AND", "OR", "VALUES" };
-
 	vector<bool> isState;
-	int sSize = statements.size();
-
-	for (size_t i = 0; i < code.size(); i++)
+	for (int i = 0; i < code.size(); i++)
 	{
-		for (size_t k = 0; k < sSize; k++)
-		{
-			if (code[i] == statements[k])
-			{
-				isState.push_back(true);
-			}
-			else if (k == sSize - 1)
-				isState.push_back(false);
-		}
+		isState.push_back(checkState(code, i));
 	}
+	
 	return isState;
 }
+
+bool checkState(vector<string> code, int pos)
+{
+	vector<string> statements = { "DELETE", "SELECT", "INSERT INTO",
+		"DISTINCT", "FROM", "WHERE", "AND", "OR", "VALUES" };
+
+	int sSize = statements.size();
+
+	for (int k = 0; k < sSize; k++)
+	{
+		if (code[pos] == statements[k])
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+
+/*
+while (code[pos] != ";")
+{
+	bool twoCol = false; //if there are two columns after SELECT
+	bool areConst = false; //if there are constraints
+
+	string colName = code[pos]; //(SELECT) (column_name, pos == 1)
+	string colName2; //in case there are two columns
+
+	pos++;
+	if (code[pos] == "FROM") //if what is after SELECT is (FROM, pos == 2)
+	{
+		pos++; //to skip FROM
+		string dataBase = code[pos]; //(FROM) (data_base, pos == 3)
+	}
+	else
+	{
+		twoCol = true;
+		colName2 = code[pos]; //pos == 2
+		pos += 2; //skips to (data_base, pos == 4)
+		string dataBase = code[pos];
+	}
+
+	pos++; //skips to WHERE
+
+		   //for WHERE: 
+	vector<string> constraints; // colum_name, operator, value
+	string clause = "none";
+	cout << pos;
+	if (code[pos] == "WHERE")
+	{
+		areConst = true; // are constraints because of WHERE
+
+		for (int i = pos++; i < isState.size(); i++)
+		{
+			if (isState[i] == false)
+				constraints.push_back(code[i]);
+			else if (isState[i] == true)
+			{
+				clause = code[i]; //either AND or OR
+				for (int count = i; count < isState.size(); count++)
+				{
+					constraints.push_back(code[i]);
+				}
+				i = isState.size();
+			}
+		}
+		constraints.push_back(clause);
+	}
+
+	if (!twoCol && !areConst)
+	{
+		OutputDatabase(DB, colName);
+	}
+	else if (!twoCol && areConst)
+	{
+		OutputDatabase(DB, colName, constraints);
+	}
+	else if (twoCol && !areConst)
+	{
+		OutputDatabase(DB, colName, colName2);
+	}
+	else if (twoCol && areConst)
+	{
+		OutputDatabase(DB, colName, colName2, constraints);
+	}
+}
+*/
